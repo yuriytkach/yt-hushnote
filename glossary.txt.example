@@ -1,0 +1,12 @@
+# HushNote shared glossary (issue #8)
+# Copy to `glossary.txt` to activate:  cp glossary.txt.example glossary.txt
+#
+# This file is applied for EVERY language, in addition to the per-language
+# glossary.<lang>.txt. Put cross-language, unambiguous product/service names here
+# (they read identically whether the speaker was using uk or ru).
+#
+# Format: pattern => replacement ; '|' separates variants ; '#' is a comment.
+дженкінс|дженкинс => Jenkins
+гітхаб|гитхаб => GitHub
+постгрес => Postgres
+графана => Grafana

@@ -1,0 +1,16 @@
+# HushNote Russian glossary (issue #8)
+# Copy to `glossary.ru.txt` to activate:  cp glossary.ru.txt.example glossary.ru.txt
+#
+# Format: pattern => replacement
+#   - '#' starts a comment; blank lines are ignored
+#   - variants of the left side are separated by '|'
+#   - matching is case-insensitive (Cyrillic-aware) and whole-word
+#
+# CAUTION: only map unambiguous, multi-letter phonetic renderings. Do NOT map
+# short words that also exist in ordinary speech — matching is whole-word, so a
+# rule like `под => pod` would rewrite the everyday preposition "под" ("под
+# нагрузкой") and corrupt normal sentences. If you must catch Kubernetes "pod",
+# use a distinctive phrase (e.g. `к8с под => k8s pod`) rather than the bare word.
+кубернетес => Kubernetes
+задеплоить|задеплоил => deploy
+хелм чарт => helm chart

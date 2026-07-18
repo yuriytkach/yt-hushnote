@@ -68,12 +68,42 @@ def _normalize_language(language):
     return language.lower()
 
 
+def _build_transcribe_kwargs(language=None, initial_prompt=None, hotwords=None, beam_size=5):
+    """Build the keyword arguments for WhisperModel.transcribe().
+
+    Kept as a pure, faster-whisper-free helper so the decoding-bias logic can be
+    unit-tested without the model installed.
+
+    - beam_size is always present (preserves today's exact default call).
+    - language is added only when non-empty (after stripping).
+    - initial_prompt is added only when non-empty (after stripping).
+    - hotwords is added only when non-empty AND initial_prompt is empty.
+
+    faster-whisper applies hotwords only when initial_prompt is falsy, so
+    dropping hotwords when initial_prompt is set makes behavior deterministic and
+    documented: initial_prompt takes precedence. Empty/whitespace-only values are
+    treated as absent, so an all-empty call reproduces the pre-#8 kwargs exactly.
+    """
+    kwargs = {"beam_size": beam_size}
+    if language and language.strip():
+        kwargs["language"] = language.strip()
+    prompt = initial_prompt.strip() if initial_prompt else ""
+    words = hotwords.strip() if hotwords else ""
+    if prompt:
+        kwargs["initial_prompt"] = prompt
+    elif words:
+        kwargs["hotwords"] = words
+    return kwargs
+
+
 def transcribe_audio(
     audio_file: str,
     model_size: str = "large-v3",
     device: str = "auto",
     language: str = None,
-    output_format: str = "txt"
+    output_format: str = "txt",
+    initial_prompt: str = None,
+    hotwords: str = None
 ) -> dict:
     """
     Transcribe an audio file using faster-whisper
@@ -84,6 +114,12 @@ def transcribe_audio(
         device: Device to use (cpu, cuda, auto)
         language: Language code (None for auto-detect)
         output_format: Output format (txt, json, srt, vtt)
+        initial_prompt: Optional text to bias decoding toward correct spellings
+            of product/tech terms (str or None). Passed straight to
+            faster-whisper; takes precedence over hotwords.
+        hotwords: Optional space-separated terms to bias decoding (str or None).
+            Only applied when initial_prompt is empty (faster-whisper ignores
+            hotwords when initial_prompt is set).
 
     Returns:
         dict with transcription results
@@ -116,9 +152,7 @@ def transcribe_audio(
         return WhisperModel(model_size, device=dev, compute_type=ctype)
 
     def _run_transcription(mdl):
-        kwargs = {"beam_size": 5}
-        if language:
-            kwargs["language"] = language
+        kwargs = _build_transcribe_kwargs(language, initial_prompt, hotwords)
         segments, info = mdl.transcribe(str(audio_file), **kwargs)
         print(f"Detected language: {info.language}", file=sys.stderr)
         result_segments = []
@@ -209,6 +243,12 @@ def main():
                        help="Device to use (default: auto)")
     parser.add_argument("-l", "--language", default=None,
                        help="Language code (default: auto-detect)")
+    parser.add_argument("--initial-prompt", default=None,
+                       help="Text to bias decoding toward correct spellings of "
+                            "product/tech terms (takes precedence over --hotwords)")
+    parser.add_argument("--hotwords", default=None,
+                       help="Space-separated terms to bias decoding (applied only "
+                            "when --initial-prompt is not set)")
     parser.add_argument("-f", "--format", default="txt",
                        choices=["txt", "json", "srt", "vtt"],
                        help="Output format (default: txt)")
@@ -236,7 +276,9 @@ def main():
             model_size=args.model,
             device=args.device,
             language=args.language,
-            output_format=args.format
+            output_format=args.format,
+            initial_prompt=args.initial_prompt,
+            hotwords=args.hotwords
         )
 
         # Save results

@@ -22,6 +22,34 @@
 # See the README "Language selection" section for details.
 #WHISPER_LANGUAGE=uk
 
+# --- English tech-term accuracy (issue #8) --------------------------------
+# All three settings below are opt-in and empty by default; leaving them unset
+# reproduces the pre-#8 behavior exactly. See the README section
+# "English tech-term accuracy (hotwords + glossary)" for the full guide.
+
+# WHISPER_HOTWORDS: space-separated product/service/tech terms used to bias
+# Whisper decoding toward clean English spellings instead of phonetic Cyrillic
+# (e.g. "кубернетес" -> "Kubernetes"). Applied only when WHISPER_INITIAL_PROMPT
+# is empty. Keep the list modest — an overly long list can cause hallucinated
+# insertions of the seeded terms.
+#WHISPER_HOTWORDS="Kubernetes deploy Helm chart Jenkins GitHub Postgres Grafana"
+
+# WHISPER_INITIAL_PROMPT: a natural-sentence decoding bias. Takes precedence over
+# WHISPER_HOTWORDS — faster-whisper ignores hotwords when an initial prompt is
+# set, so set only one of the two.
+#WHISPER_INITIAL_PROMPT="We discuss Kubernetes, deploys, Helm charts, Jenkins, GitHub, Postgres and Grafana."
+
+# GLOSSARY_DIR: directory holding the per-language term glossaries applied to the
+# transcript before summarization. Files are: glossary.txt (shared, all
+# languages) and glossary.<lang>.txt (e.g. glossary.uk.txt, glossary.ru.txt).
+# Ship templates live next to hushnote as glossary*.txt.example — copy one and
+# edit it to activate, e.g.:  cp glossary.uk.txt.example glossary.uk.txt
+# Real glossary.*.txt files are git-ignored (they match *.txt), so they stay
+# untracked automatically.
+# Default: the hushnote script directory.
+#GLOSSARY_DIR="${HOME}/.config/hushnote"
+# --------------------------------------------------------------------------
+
 # Ollama model for summarization
 # Default: llama3.1:8b
 #OLLAMA_MODEL=llama3.1:8b

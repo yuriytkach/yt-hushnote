@@ -106,6 +106,27 @@ section in the README for the full guidance — including a user verification st
 for measuring accuracy on your own recordings, which needs your own audio and
 can't be done for you.
 
+### English tech terms (Kubernetes, deploy, ...)
+
+For meetings that mix Slavic speech with English programming terms, two opt-in
+layers improve accuracy (both empty by default — leaving them unset changes
+nothing):
+
+- **Hotwords / initial prompt** bias Whisper toward clean English spellings.
+  Set `WHISPER_HOTWORDS="Kubernetes deploy Helm chart Jenkins GitHub"` (or the
+  sentence-form `WHISPER_INITIAL_PROMPT`, which takes precedence) in
+  `.hushnoterc`.
+- **A per-language glossary** normalizes phonetic Cyrillic renderings before the
+  summary. Copy a template to activate it, e.g.
+  `cp glossary.uk.txt.example glossary.uk.txt`, then edit it for your stack
+  (`GLOSSARY_DIR` points at where these files live; default is the hushnote
+  directory). Real `glossary.*.txt` files are git-ignored.
+
+Full format, language-resolution behavior, and a with/without verification
+procedure are in the README
+[English tech-term accuracy](README.md#english-tech-term-accuracy-hotwords--glossary)
+section.
+
 ## Common Commands
 
 ```bash

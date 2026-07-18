@@ -1,0 +1,19 @@
+# HushNote Ukrainian glossary (issue #8)
+# Copy to `glossary.uk.txt` to activate:  cp glossary.uk.txt.example glossary.uk.txt
+#
+# Format: one rule per line as  pattern => replacement
+#   - lines starting with '#' are comments; blank lines are ignored
+#   - the left side may list phonetic variants separated by '|'
+#   - matching is case-insensitive (Cyrillic-aware) and whole-word
+#
+# These entries normalize common phonetic Cyrillic renderings of English tech
+# terms back to their canonical English spelling. Tailor them to your stack.
+#
+# CAUTION: only map unambiguous, multi-letter phonetic renderings. Do NOT map
+# short words that also exist in ordinary speech — matching is whole-word, so a
+# rule like `под => pod` would rewrite the everyday preposition "под" ("под
+# нагрузкою") and corrupt normal sentences. If you must catch Kubernetes "pod",
+# use a distinctive phrase (e.g. `к8с под => k8s pod`) rather than the bare word.
+кубернетіс|кубернетес => Kubernetes
+задеплоїти|задеплоїв|задеплоїмо => deploy
+хелм чарт => helm chart

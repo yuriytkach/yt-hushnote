@@ -10,6 +10,8 @@ import json
 import sys
 from pathlib import Path
 
+import glossary
+
 try:
     import requests
 except ImportError:
@@ -38,7 +40,7 @@ A markdown checklist of concrete next steps that were explicitly agreed on, with
 
 ## Participants
 Names or roles of identifiable speakers, if mentioned.
-
+{normalization}
 Transcription:
 {transcription}
 
@@ -89,16 +91,38 @@ def load_transcription(file_path: str) -> str:
         return path.read_text()
 
 
+def _build_summary_prompt(transcription: str, known_terms=None) -> str:
+    """Format SUMMARY_PROMPT, optionally folding known terms in for soft LLM
+    normalization. When known_terms is empty/None the {normalization} slot is
+    empty, reproducing the pre-#8 prompt byte-for-byte."""
+    if known_terms:
+        normalization = (
+            "The transcript may render some technical or product names "
+            "phonetically or misspelled. When a word clearly refers to one of "
+            "these known terms, normalize it to the canonical spelling: "
+            + ", ".join(known_terms) + "."
+        )
+    else:
+        normalization = ""
+    return SUMMARY_PROMPT.format(transcription=transcription, normalization=normalization)
+
+
 def summarize_meeting(
     transcription: str,
     model: str,
     ollama_url: str,
+    known_terms=None,
 ) -> dict:
-    """Generate meeting notes from a transcription in a single Ollama call."""
+    """Generate meeting notes from a transcription in a single Ollama call.
+
+    known_terms: optional list of canonical glossary targets. When non-empty, an
+    instruction to normalize phonetic renderings toward those terms is folded into
+    the prompt. When empty/None, the prompt and behavior are unchanged from before.
+    """
     print(f"Generating meeting summary using {model}...", file=sys.stderr)
 
     text = query_ollama(
-        SUMMARY_PROMPT.format(transcription=transcription),
+        _build_summary_prompt(transcription, known_terms),
         model=model,
         ollama_url=ollama_url,
     )
@@ -140,7 +164,14 @@ def main():
                        help="Output format (default: md)")
     parser.add_argument("-o", "--output",
                        help="Output file (default: transcription_file_summary.md)")
-
+    parser.add_argument("-l", "--language", default=None,
+                       help="Transcript language for glossary selection "
+                            "(default: explicit > detected from sibling JSON > union)")
+    parser.add_argument("--glossary-dir", default=str(Path(__file__).resolve().parent),
+                       help="Directory of glossary.*.txt term files "
+                            "(default: this script's directory)")
+    parser.add_argument("--no-glossary", action="store_true",
+                       help="Disable glossary term normalization entirely")
 
     args = parser.parse_args()
 
@@ -150,6 +181,19 @@ def main():
     if not transcription.strip():
         print("Error: Transcription is empty", file=sys.stderr)
         sys.exit(1)
+
+    # Apply the per-language term glossary (issue #8) before summarizing. This is
+    # opt-in: with no glossary files present, entries is empty, the transcript is
+    # untouched, and no known-terms instruction is added — identical to before.
+    known_terms = []
+    if not args.no_glossary:
+        language = glossary.resolve_language(args.language, args.transcription_file)
+        entries = glossary.load_glossary(args.glossary_dir, language)
+        if entries:
+            transcription = glossary.apply_glossary(transcription, entries)
+            known_terms = glossary.terms_for_prompt(entries)
+            print(f"Glossary: {len(entries)} rule(s) applied "
+                  f"(language: {language or 'union'})", file=sys.stderr)
 
     # Determine output file
     if args.output:
@@ -165,6 +209,7 @@ def main():
             transcription,
             model=args.model,
             ollama_url=args.ollama_url,
+            known_terms=known_terms,
         )
 
         # Save results

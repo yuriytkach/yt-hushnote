@@ -19,6 +19,9 @@ fi
 OUTPUT_DIR="${RECORDINGS_DIR:-${SCRIPT_DIR}/recordings}"
 WHISPER_MODEL="${WHISPER_MODEL:-large-v3}"
 WHISPER_LANGUAGE="${WHISPER_LANGUAGE:-}"
+WHISPER_HOTWORDS="${WHISPER_HOTWORDS:-}"              # Space-separated tech terms to bias transcription spelling
+WHISPER_INITIAL_PROMPT="${WHISPER_INITIAL_PROMPT:-}" # Sentence-form decoding bias (takes precedence over hotwords)
+GLOSSARY_DIR="${GLOSSARY_DIR:-${SCRIPT_DIR}}"        # Directory of per-language glossary.<lang>.txt term files
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.1:8b}"
 OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
 PROCESS_TIMEOUT="${PROCESS_TIMEOUT:-7200}"  # Max seconds for process/process-last (default: 2h)
@@ -60,6 +63,8 @@ Options:
     -d, --duration SEC  Recording duration in seconds (default: manual stop with Ctrl+C)
     -m, --model MODEL   Whisper model size: tiny, base, small, medium, large-v3 (default: large-v3)
     -l, --language LANG Language code, e.g. uk, ru, en, or auto (default: auto-detect)
+    --initial-prompt T  Decoding-bias sentence for tech-term spelling (overrides --hotwords)
+    --hotwords TERMS    Space-separated tech terms to bias transcription spelling
     -o, --ollama MODEL  Ollama model for summarization (default: llama3.1:8b)
     -f, --format FMT    Output format: txt, json, srt, vtt, md (default: txt for transcribe, md for summarize)
     -s, --speakers NUM  Number of speakers (for diarization)
@@ -80,6 +85,12 @@ Environment Variables:
                         tracks and labels the transcript by origin, no diarization.
     WHISPER_MODEL       Default Whisper model (default: large-v3)
     WHISPER_LANGUAGE    Default language code, e.g. uk, ru, en (default: auto-detect)
+    WHISPER_HOTWORDS    Space-separated tech terms biasing transcription toward
+                        clean English spellings (default: none)
+    WHISPER_INITIAL_PROMPT  Sentence-form decoding bias; takes precedence over
+                        WHISPER_HOTWORDS (default: none)
+    GLOSSARY_DIR        Directory of per-language glossary.<lang>.txt files applied
+                        to the transcript before summarizing (default: script dir)
     OLLAMA_MODEL        Default Ollama model (default: llama3.1:8b)
     OLLAMA_URL          Ollama API URL (default: http://localhost:11434)
     HF_TOKEN            HuggingFace API token (for speaker diarization)
@@ -233,6 +244,8 @@ transcribe_meeting() {
 
     local model="$WHISPER_MODEL"
     local language="$WHISPER_LANGUAGE"
+    local initial_prompt="$WHISPER_INITIAL_PROMPT"
+    local hotwords="$WHISPER_HOTWORDS"
     local format="txt"
     local output=""
 
@@ -244,6 +257,14 @@ transcribe_meeting() {
                 ;;
             -l|--language)
                 language="$2"
+                shift 2
+                ;;
+            --initial-prompt)
+                initial_prompt="$2"
+                shift 2
+                ;;
+            --hotwords)
+                hotwords="$2"
                 shift 2
                 ;;
             -f|--format)
@@ -279,6 +300,10 @@ transcribe_meeting() {
 
     local cmd="\"$PYTHON\" \"${SCRIPT_DIR}/transcribe.py\" \"$audio_file\" -m $model -f $format -o \"$output\""
     [ -n "$language" ] && cmd="$cmd -l $language"
+    # initial_prompt/hotwords are free text (spaces/quotes); %q-quote so they
+    # survive the eval as single arguments.
+    [ -n "$initial_prompt" ] && cmd="$cmd --initial-prompt $(printf %q "$initial_prompt")"
+    [ -n "$hotwords" ] && cmd="$cmd --hotwords $(printf %q "$hotwords")"
 
     eval $cmd
 
@@ -298,6 +323,8 @@ summarize_meeting() {
     local model="$OLLAMA_MODEL"
     local format="md"
     local output=""
+    local language=""
+    local glossary_dir="$GLOSSARY_DIR"
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -307,6 +334,14 @@ summarize_meeting() {
                 ;;
             -f|--format)
                 format="$2"
+                shift 2
+                ;;
+            -l|--language)
+                language="$2"
+                shift 2
+                ;;
+            --glossary-dir)
+                glossary_dir="$2"
                 shift 2
                 ;;
             --output)
@@ -336,6 +371,11 @@ summarize_meeting() {
     fi
 
     local cmd="\"$PYTHON\" \"${SCRIPT_DIR}/summarize.py\" \"$transcription_file\" -m $model -f $format -o \"$output\""
+    # Language selects the per-language glossary (issue #8); when empty,
+    # summarize.py falls back to the language recorded in the sibling JSON, then
+    # to the union of all glossary files. glossary_dir is a path -> quote it.
+    [ -n "$language" ] && cmd="$cmd -l $language"
+    [ -n "$glossary_dir" ] && cmd="$cmd --glossary-dir $(printf %q "$glossary_dir")"
 
     eval $cmd
 
@@ -350,6 +390,8 @@ full_workflow() {
     local duration=""
     local whisper_model="$WHISPER_MODEL"
     local whisper_language="$WHISPER_LANGUAGE"
+    local whisper_initial_prompt="$WHISPER_INITIAL_PROMPT"
+    local whisper_hotwords="$WHISPER_HOTWORDS"
     local ollama_model="$OLLAMA_MODEL"
     local format=""
     local enable_diarization=false
@@ -374,6 +416,14 @@ full_workflow() {
                 ;;
             -l|--language)
                 whisper_language="$2"
+                shift 2
+                ;;
+            --initial-prompt)
+                whisper_initial_prompt="$2"
+                shift 2
+                ;;
+            --hotwords)
+                whisper_hotwords="$2"
                 shift 2
                 ;;
             -o|--ollama)
@@ -492,6 +542,8 @@ full_workflow() {
     if [ -n "$dual_base" ]; then
         local dual_args=(-m "$whisper_model")
         [ -n "$whisper_language" ] && dual_args+=(-l "$whisper_language")
+        [ -n "$whisper_initial_prompt" ] && dual_args+=(--initial-prompt "$whisper_initial_prompt")
+        [ -n "$whisper_hotwords" ] && dual_args+=(--hotwords "$whisper_hotwords")
         [ -n "$ollama_model" ] && dual_args+=(-o "$ollama_model")
         [ "$enable_compression" = false ] && dual_args+=(--no-compress)
         [ "$keep_wav" = true ] && dual_args+=(--keep-wav)
@@ -526,6 +578,8 @@ full_workflow() {
 
         local transcribe_cmd=("$PYTHON" "${SCRIPT_DIR}/transcribe.py" "$audio_file" -m "$whisper_model" -f json -o "$transcription_json")
         [ -n "$whisper_language" ] && transcribe_cmd+=(-l "$whisper_language")
+        [ -n "$whisper_initial_prompt" ] && transcribe_cmd+=(--initial-prompt "$whisper_initial_prompt")
+        [ -n "$whisper_hotwords" ] && transcribe_cmd+=(--hotwords "$whisper_hotwords")
         "${transcribe_cmd[@]}"
 
         if [ ! -f "$transcription_json" ]; then
@@ -580,11 +634,10 @@ full_workflow() {
         # Step 7: Summarize
         log_info "Step 7: Generating summary..."
         local summary_file
-        if [ -n "$ollama_model" ]; then
-            summary_file=$(summarize_meeting "$transcription_file" -o "$ollama_model")
-        else
-            summary_file=$(summarize_meeting "$transcription_file")
-        fi
+        local summarize_args=()
+        [ -n "$ollama_model" ] && summarize_args+=(-o "$ollama_model")
+        [ -n "$whisper_language" ] && summarize_args+=(-l "$whisper_language")
+        summary_file=$(summarize_meeting "$transcription_file" "${summarize_args[@]}")
 
         if [ -z "$summary_file" ] || [ ! -f "$summary_file" ]; then
             log_error "Summarization failed"
@@ -664,6 +717,8 @@ full_workflow() {
         local transcribe_args=()
         [ -n "$whisper_model" ] && transcribe_args+=(-m "$whisper_model")
         [ -n "$whisper_language" ] && transcribe_args+=(-l "$whisper_language")
+        [ -n "$whisper_initial_prompt" ] && transcribe_args+=(--initial-prompt "$whisper_initial_prompt")
+        [ -n "$whisper_hotwords" ] && transcribe_args+=(--hotwords "$whisper_hotwords")
         transcription_file=$(transcribe_meeting "$transcribe_source" "${transcribe_args[@]}")
 
         log_debug "Transcription file captured: [$transcription_file]"
@@ -678,11 +733,10 @@ full_workflow() {
         # Step 5: Summarize
         log_info "Step 5/5: Generating summary..."
         local summary_file
-        if [ -n "$ollama_model" ]; then
-            summary_file=$(summarize_meeting "$transcription_file" -o "$ollama_model")
-        else
-            summary_file=$(summarize_meeting "$transcription_file")
-        fi
+        local summarize_args=()
+        [ -n "$ollama_model" ] && summarize_args+=(-o "$ollama_model")
+        [ -n "$whisper_language" ] && summarize_args+=(-l "$whisper_language")
+        summary_file=$(summarize_meeting "$transcription_file" "${summarize_args[@]}")
 
         if [ -z "$summary_file" ] || [ ! -f "$summary_file" ]; then
             log_error "Summarization failed"
@@ -737,6 +791,8 @@ process_dual_meeting() {
 
     local model="$WHISPER_MODEL"
     local language="$WHISPER_LANGUAGE"
+    local initial_prompt="$WHISPER_INITIAL_PROMPT"
+    local hotwords="$WHISPER_HOTWORDS"
     local ollama_model="$OLLAMA_MODEL"
     local enable_compression=true
     local keep_wav=false
@@ -750,6 +806,14 @@ process_dual_meeting() {
                 ;;
             -l|--language)
                 language="$2"
+                shift 2
+                ;;
+            --initial-prompt)
+                initial_prompt="$2"
+                shift 2
+                ;;
+            --hotwords)
+                hotwords="$2"
                 shift 2
                 ;;
             -o|--ollama)
@@ -792,6 +856,8 @@ process_dual_meeting() {
     local voice_json="${base}.voice.json"
     local voice_cmd=("$PYTHON" "${SCRIPT_DIR}/transcribe.py" "$voice_wav" -m "$model" -f json -o "$voice_json")
     [ -n "$language" ] && voice_cmd+=(-l "$language")
+    [ -n "$initial_prompt" ] && voice_cmd+=(--initial-prompt "$initial_prompt")
+    [ -n "$hotwords" ] && voice_cmd+=(--hotwords "$hotwords")
     "${voice_cmd[@]}"
 
     if [ ! -f "$voice_json" ]; then
@@ -805,6 +871,8 @@ process_dual_meeting() {
     local system_json="${base}.system.json"
     local system_cmd=("$PYTHON" "${SCRIPT_DIR}/transcribe.py" "$system_wav" -m "$model" -f json -o "$system_json")
     [ -n "$language" ] && system_cmd+=(-l "$language")
+    [ -n "$initial_prompt" ] && system_cmd+=(--initial-prompt "$initial_prompt")
+    [ -n "$hotwords" ] && system_cmd+=(--hotwords "$hotwords")
     "${system_cmd[@]}"
 
     if [ ! -f "$system_json" ]; then
@@ -841,11 +909,10 @@ process_dual_meeting() {
     # Step 5: Summarize.
     log_info "Step 5: Generating summary..."
     local summary_file
-    if [ -n "$ollama_model" ]; then
-        summary_file=$(summarize_meeting "$transcription_file" -o "$ollama_model")
-    else
-        summary_file=$(summarize_meeting "$transcription_file")
-    fi
+    local summarize_args=()
+    [ -n "$ollama_model" ] && summarize_args+=(-o "$ollama_model")
+    [ -n "$language" ] && summarize_args+=(-l "$language")
+    summary_file=$(summarize_meeting "$transcription_file" "${summarize_args[@]}")
 
     if [ -z "$summary_file" ] || [ ! -f "$summary_file" ]; then
         log_error "Summarization failed"
@@ -1680,6 +1747,8 @@ main() {
                 echo "Options:"
                 echo "  -m, --model MODEL     Whisper model (tiny|base|small|medium|large-v3, default: large-v3)"
                 echo "  -l, --language LANG   Language code (uk|ru|en|auto, default: auto-detect)"
+                echo "  --initial-prompt TEXT Decoding-bias sentence for tech-term spelling (overrides --hotwords)"
+                echo "  --hotwords TERMS      Space-separated tech terms to bias transcription spelling"
                 echo "  -o, --ollama MODEL    Ollama model for summarization"
                 echo "  -s, --speakers NUM    Number of speakers (requires --diarize)"
                 echo "  --diarize             Enable speaker diarization"
@@ -1705,6 +1774,8 @@ main() {
             # Parse arguments
             local whisper_model="$WHISPER_MODEL"
             local whisper_language="$WHISPER_LANGUAGE"
+            local whisper_initial_prompt="$WHISPER_INITIAL_PROMPT"
+            local whisper_hotwords="$WHISPER_HOTWORDS"
             local ollama_model="$OLLAMA_MODEL"
             local enable_diarization=false
             local num_speakers=""
@@ -1724,6 +1795,14 @@ main() {
                         ;;
                     -l|--language)
                         whisper_language="$2"
+                        shift 2
+                        ;;
+                    --initial-prompt)
+                        whisper_initial_prompt="$2"
+                        shift 2
+                        ;;
+                    --hotwords)
+                        whisper_hotwords="$2"
                         shift 2
                         ;;
                     -o|--ollama)
@@ -1791,6 +1870,8 @@ main() {
             if [ -n "$dual_base" ]; then
                 local dual_args=(-m "$whisper_model")
                 [ -n "$whisper_language" ] && dual_args+=(-l "$whisper_language")
+                [ -n "$whisper_initial_prompt" ] && dual_args+=(--initial-prompt "$whisper_initial_prompt")
+                [ -n "$whisper_hotwords" ] && dual_args+=(--hotwords "$whisper_hotwords")
                 [ -n "$ollama_model" ] && dual_args+=(-o "$ollama_model")
                 [ "$enable_compression" = false ] && dual_args+=(--no-compress)
                 [ "$keep_wav" = true ] && dual_args+=(--keep-wav)
@@ -1822,6 +1903,8 @@ main() {
 
                 local transcribe_cmd=("$PYTHON" "${SCRIPT_DIR}/transcribe.py" "$audio_file" -m "$whisper_model" -f json -o "$transcription_json")
                 [ -n "$whisper_language" ] && transcribe_cmd+=(-l "$whisper_language")
+                [ -n "$whisper_initial_prompt" ] && transcribe_cmd+=(--initial-prompt "$whisper_initial_prompt")
+                [ -n "$whisper_hotwords" ] && transcribe_cmd+=(--hotwords "$whisper_hotwords")
                 "${transcribe_cmd[@]}"
 
                 if [ ! -f "$transcription_json" ]; then
@@ -1872,11 +1955,10 @@ main() {
                 # Step 6: Summarize
                 log_info "Step 6: Generating summary..."
                 local summary_file
-                if [ -n "$ollama_model" ]; then
-                    summary_file=$(summarize_meeting "$transcription_file" -o "$ollama_model")
-                else
-                    summary_file=$(summarize_meeting "$transcription_file")
-                fi
+                local summarize_args=()
+                [ -n "$ollama_model" ] && summarize_args+=(-o "$ollama_model")
+                [ -n "$whisper_language" ] && summarize_args+=(-l "$whisper_language")
+                summary_file=$(summarize_meeting "$transcription_file" "${summarize_args[@]}")
 
                 if [ -z "$summary_file" ] || [ ! -f "$summary_file" ]; then
                     log_error "Summarization failed"
@@ -1954,17 +2036,18 @@ main() {
                 # Step 3: Transcribe
                 local process_transcribe_args=(-m "$whisper_model")
                 [ -n "$whisper_language" ] && process_transcribe_args+=(-l "$whisper_language")
+                [ -n "$whisper_initial_prompt" ] && process_transcribe_args+=(--initial-prompt "$whisper_initial_prompt")
+                [ -n "$whisper_hotwords" ] && process_transcribe_args+=(--hotwords "$whisper_hotwords")
                 local transcription_file
                 transcription_file=$(transcribe_meeting "$transcribe_source" "${process_transcribe_args[@]}")
 
                 if [ -f "$transcription_file" ]; then
                     # Step 4: Summarize
                     local summary_file
-                    if [ -n "$ollama_model" ]; then
-                        summary_file=$(summarize_meeting "$transcription_file" -o "$ollama_model")
-                    else
-                        summary_file=$(summarize_meeting "$transcription_file")
-                    fi
+                    local summarize_args=()
+                    [ -n "$ollama_model" ] && summarize_args+=(-o "$ollama_model")
+                    [ -n "$whisper_language" ] && summarize_args+=(-l "$whisper_language")
+                    summary_file=$(summarize_meeting "$transcription_file" "${summarize_args[@]}")
 
                     echo ""
 
