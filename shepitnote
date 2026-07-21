@@ -2654,6 +2654,22 @@ meeting_ui() {
     fi
     echo ""
 
+    # Step 2b: for diarized meetings, optionally confirm/fix who each speaker is
+    # BEFORE review + publish. Reuses `relabel`: shows each Remote N with an LLM
+    # name guess (from the roster) to accept/correct/merge/drop, then rebuilds the
+    # transcript and re-summarizes so the review + publish use the named version.
+    # Skipped for in-person single-track meetings (no far-side speakers) and when
+    # not confirmed (blank/EOF = skip, pipe-safe — matches the publish prompts).
+    if [ -f "${base}_speakers_labeled.json" ] && grep -q '"Remote' "${base}_speakers_labeled.json"; then
+        local _spk_ans
+        _spk_ans=$(_ui_prompt "Confirm/fix speaker names before review? [y/N]: ")
+        if python3 "${SCRIPT_DIR}/meeting_ui.py" confirm "$_spk_ans"; then
+            log_info "Step 2b: Confirm speaker names."
+            relabel_meeting "$base_dir"
+            echo ""
+        fi
+    fi
+
     # Step 3: Review — detected language + transcript + summary. Prefer the sibling
     # transcription JSON (present for dual tracks); fall back to the 'Detected
     # language:' line captured from the process log (single-track path).
