@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import glossary
+import roster as roster_mod
 
 try:
     import requests
@@ -40,8 +41,12 @@ Key decisions or conclusions reached. Omit this section if none were made.
 A markdown checklist of concrete next steps that were explicitly agreed on, with owner and deadline if mentioned. Only include items that were clearly committed to — not vague intentions or possibilities. Omit this section entirely if there are no real action items.
 
 ## Participants
-Names or roles of identifiable speakers, if mentioned.
-{normalization}
+List ONLY the people who actually spoke in this meeting — those who appear as a [Speaker] label in the transcript. Rules:
+- Each distinct speaker label is exactly one person; never list the same person twice under different names.
+- Do NOT list anyone who is only mentioned or talked about by others but did not themselves speak.
+- Do NOT invent a job title or role you cannot support from the transcript; if unsure of someone's role, give the name alone.
+- Write each participant as their name and role only (e.g. "Viktor — frontend developer"); do NOT repeat any alias/nickname list.
+{roster}{normalization}
 Transcription:
 {transcription}
 
@@ -114,10 +119,11 @@ def load_transcription(file_path: str) -> str:
         return path.read_text()
 
 
-def _build_summary_prompt(transcription: str, known_terms=None) -> str:
-    """Format SUMMARY_PROMPT, optionally folding known terms in for soft LLM
-    normalization. When known_terms is empty/None the {normalization} slot is
-    empty, reproducing the pre-#8 prompt byte-for-byte."""
+def _build_summary_prompt(transcription: str, known_terms=None, roster_block="") -> str:
+    """Format SUMMARY_PROMPT, optionally folding in glossary terms (soft LLM
+    normalization) and a roster of known participants. When known_terms is
+    empty/None the {normalization} slot is empty and when roster_block is empty
+    the {roster} slot is empty, reproducing the earlier prompt byte-for-byte."""
     if known_terms:
         normalization = (
             "The transcript may render some technical or product names "
@@ -127,7 +133,11 @@ def _build_summary_prompt(transcription: str, known_terms=None) -> str:
         )
     else:
         normalization = ""
-    return SUMMARY_PROMPT.format(transcription=transcription, normalization=normalization)
+    return SUMMARY_PROMPT.format(
+        transcription=transcription,
+        normalization=normalization,
+        roster=roster_block or "",
+    )
 
 
 def summarize_meeting(
@@ -135,17 +145,20 @@ def summarize_meeting(
     model: str,
     ollama_url: str,
     known_terms=None,
+    roster_block="",
 ) -> dict:
     """Generate meeting notes from a transcription in a single Ollama call.
 
     known_terms: optional list of canonical glossary targets. When non-empty, an
     instruction to normalize phonetic renderings toward those terms is folded into
-    the prompt. When empty/None, the prompt and behavior are unchanged from before.
+    the prompt.
+    roster_block: optional pre-built roster ground-truth block (from roster.py).
+    When both are empty/None, the prompt and behavior are unchanged from before.
     """
     print(f"Generating meeting summary using {model}...", file=sys.stderr)
 
     text = query_ollama(
-        _build_summary_prompt(transcription, known_terms),
+        _build_summary_prompt(transcription, known_terms, roster_block),
         model=model,
         ollama_url=ollama_url,
     )
@@ -214,6 +227,25 @@ def main():
                             "(default: this script's directory)")
     parser.add_argument("--no-glossary", action="store_true",
                        help="Disable glossary term normalization entirely")
+    parser.add_argument("--roster-dir", default=str(Path(__file__).resolve().parent),
+                       help="Directory holding roster.txt (known participants + "
+                            "roles) folded into the summary as ground truth "
+                            "(default: this script's directory)")
+    parser.add_argument("--roster", default=None,
+                       help="Select a named roster file roster.<NAME>.txt in the "
+                            "roster dir (default: roster.txt); e.g. --roster sigma. "
+                            "Falls back to MEETING_ROSTER env")
+    parser.add_argument("--roster-file", default=None,
+                       help="Explicit path to a roster file (overrides --roster "
+                            "and --roster-dir)")
+    parser.add_argument("--no-roster", action="store_true",
+                       help="Disable the participant roster entirely (use when an "
+                            "outside guest not in any roster attends)")
+    parser.add_argument("--self-name", default=None,
+                       help="Name of the local recorder (the 'You'/mic track); "
+                            "overrides a '*' line in roster.txt")
+    parser.add_argument("--self-role", default=None,
+                       help="Role of the local recorder (used with --self-name)")
     parser.add_argument("--translate", dest="translate",
                        action=argparse.BooleanOptionalAction, default=None,
                        help="Translate the transcript to English before "
@@ -261,6 +293,26 @@ def main():
             print(f"Glossary: {len(entries)} rule(s) applied "
                   f"(language: {language or 'union'})", file=sys.stderr)
 
+    # Build the participant roster block (known names + roles as ground truth,
+    # plus the local-speaker identity). Opt-in: with no roster.txt and no
+    # --self-name, roster_block is "" and the prompt is unchanged. self-name/role
+    # fall back to env so shepitnote can forward MEETING_SELF_NAME/ROLE.
+    roster_block = ""
+    if not args.no_roster:
+        # Precedence: explicit --roster-file > named --roster/MEETING_ROSTER
+        # (roster.<name>.txt) > default roster.txt in --roster-dir.
+        if args.roster_file:
+            people = roster_mod.load_roster_file(args.roster_file)
+        else:
+            roster_name = args.roster or os.getenv("MEETING_ROSTER")
+            people = roster_mod.load_roster(args.roster_dir, roster_name)
+        self_name = args.self_name or os.getenv("MEETING_SELF_NAME")
+        self_role = args.self_role or os.getenv("MEETING_SELF_ROLE")
+        roster_block = roster_mod.roster_prompt_block(people, self_name, self_role)
+        if roster_block:
+            print(f"Roster: {len(people)} known participant(s) provided "
+                  "as ground truth", file=sys.stderr)
+
     # Opt-in translate-first: convert the (glossary-normalized) transcript to
     # English before summarizing. Done after the glossary pass so canonical term
     # spellings carry into the translation.
@@ -284,6 +336,7 @@ def main():
             model=args.model,
             ollama_url=args.ollama_url,
             known_terms=known_terms,
+            roster_block=roster_block,
         )
 
         # Save results

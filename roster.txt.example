@@ -1,0 +1,24 @@
+# ShepitNote participant roster — known people for the meeting summarizer.
+#
+# Copy this file to roster.txt (same directory, git-ignored because it matches
+# *.txt) and edit it. The summarizer folds these names + roles into the notes as
+# GROUND TRUTH, so it stops inventing roles, splitting one person across two
+# names, or listing people who were only mentioned but never actually spoke.
+#
+# One person per line:
+#     Name | role | alias1, alias2, ...
+# The role and aliases columns are optional:
+#     Roman | scrum master
+#     Alik
+# A leading '*' marks YOU — the local recorder (the microphone / "You" track).
+# You can instead set MEETING_SELF_NAME / MEETING_SELF_ROLE in .shepitnoterc.
+# Lines starting with '#' and blank lines are ignored.
+#
+# Aliases capture diminutives and other-script spellings, so the model treats
+# "Витя", "Vitya" and "Viktor" as the SAME person and normalizes to "Viktor".
+
+* Your Name | your role |
+# Viktor | frontend developer | Витя, Виктор, Vitya
+# Eduard | dev lead | Эдуард
+# Roman  | scrum master / facilitator | Роман
+# Alik   | engineer | Алик

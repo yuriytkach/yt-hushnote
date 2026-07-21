@@ -50,6 +50,25 @@
 #GLOSSARY_DIR="${HOME}/.config/shepitnote"
 # --------------------------------------------------------------------------
 
+# --- Participant roster (known names + roles) -----------------------------
+# The summarizer otherwise GUESSES who spoke and what their role is, purely from
+# the transcript. On multi-party calls that misfires: people who were only
+# mentioned get listed as participants, one speaker is split across two names,
+# and roles are invented. A roster fixes this by giving the model ground truth.
+#
+# ROSTER_DIR: directory holding roster.txt. One person per line:
+#     Name | role | alias1, alias2, ...
+# A leading '*' marks YOU (the local mic / "You" track). Copy the shipped
+# roster.txt.example -> roster.txt and edit it. roster.txt is git-ignored (it
+# matches *.txt), so real names stay untracked. Default: GLOSSARY_DIR.
+#ROSTER_DIR="${HOME}/.config/shepitnote"
+#
+# MEETING_SELF_NAME / MEETING_SELF_ROLE: your name and role for the local ("You")
+# track. An alternative to the '*' line in roster.txt; if both are set these win.
+#MEETING_SELF_NAME="Yuriy"
+#MEETING_SELF_ROLE="CTO / dev lead"
+# --------------------------------------------------------------------------
+
 # Ollama model for summarization
 # Default: llama3.1:8b
 #OLLAMA_MODEL=llama3.1:8b

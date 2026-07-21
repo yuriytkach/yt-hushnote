@@ -31,6 +31,10 @@ WHISPER_LANGUAGE="${WHISPER_LANGUAGE:-}"
 WHISPER_HOTWORDS="${WHISPER_HOTWORDS:-}"              # Space-separated tech terms to bias transcription spelling
 WHISPER_INITIAL_PROMPT="${WHISPER_INITIAL_PROMPT:-}" # Sentence-form decoding bias (takes precedence over hotwords)
 GLOSSARY_DIR="${GLOSSARY_DIR:-${SCRIPT_DIR}}"        # Directory of per-language glossary.<lang>.txt term files
+ROSTER_DIR="${ROSTER_DIR:-${GLOSSARY_DIR}}"          # Directory holding roster.txt / roster.<name>.txt (known participants)
+MEETING_ROSTER="${MEETING_ROSTER:-}"                 # Select a named roster.<name>.txt (empty = roster.txt; guided flow can ask)
+MEETING_SELF_NAME="${MEETING_SELF_NAME:-}"           # Your name for the local mic ("You") track (roster ground truth)
+MEETING_SELF_ROLE="${MEETING_SELF_ROLE:-}"           # Your role/title (used with MEETING_SELF_NAME)
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.1:8b}"
 OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
 
@@ -244,6 +248,12 @@ Environment Variables:
                         WHISPER_HOTWORDS (default: none)
     GLOSSARY_DIR        Directory of per-language glossary.<lang>.txt files applied
                         to the transcript before summarizing (default: script dir)
+    ROSTER_DIR          Directory holding roster.txt / roster.<name>.txt (known
+                        participants + roles + aliases) folded into the summary as
+                        ground truth (default: GLOSSARY_DIR)
+    MEETING_ROSTER      Select a named roster.<name>.txt (default: roster.txt)
+    MEETING_SELF_NAME   Your name for the local ("You") mic track; MEETING_SELF_ROLE
+                        your role. Alternative to a '*' line in roster.txt
     OLLAMA_MODEL        Default Ollama model (default: llama3.1:8b)
     OLLAMA_URL          Ollama API URL (default: http://localhost:11434)
     CLOUD               Set true to process in the cloud (same as --cloud); off by
@@ -762,6 +772,7 @@ summarize_meeting() {
     local output=""
     local language=""
     local glossary_dir="$GLOSSARY_DIR"
+    local roster_dir="$ROSTER_DIR"
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -779,6 +790,10 @@ summarize_meeting() {
                 ;;
             --glossary-dir)
                 glossary_dir="$2"
+                shift 2
+                ;;
+            --roster-dir)
+                roster_dir="$2"
                 shift 2
                 ;;
             --output)
@@ -813,6 +828,13 @@ summarize_meeting() {
     # to the union of all glossary files. glossary_dir is a path -> quote it.
     [ -n "$language" ] && cmd="$cmd -l $language"
     [ -n "$glossary_dir" ] && cmd="$cmd --glossary-dir $(printf %q "$glossary_dir")"
+    # Participant roster (known names + roles) folded into the summary as ground
+    # truth; the local-speaker identity comes from MEETING_SELF_NAME/ROLE, which
+    # summarize.py also reads from the environment. Paths -> quote them.
+    [ -n "$roster_dir" ] && cmd="$cmd --roster-dir $(printf %q "$roster_dir")"
+    [ -n "$MEETING_ROSTER" ] && cmd="$cmd --roster $(printf %q "$MEETING_ROSTER")"
+    [ -n "$MEETING_SELF_NAME" ] && cmd="$cmd --self-name $(printf %q "$MEETING_SELF_NAME")"
+    [ -n "$MEETING_SELF_ROLE" ] && cmd="$cmd --self-role $(printf %q "$MEETING_SELF_ROLE")"
 
     eval $cmd
 
