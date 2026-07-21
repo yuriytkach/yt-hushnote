@@ -28,10 +28,12 @@ user still sees progress. Nothing else talks to the network or the mic — the w
 - `cloud_transcribe.py` — OpenAI-compatible `/audio/transcriptions` (Groq preset); **same result dict shape** as `transcribe.py`.
 - `summarize.py` — Ollama structured summary; imports `glossary`; forwards `OLLAMA_NUM_THREAD`.
 - `glossary.py` — **pure**, stdlib-only per-language Cyrillic→Latin term normalization (imported by `summarize.py` + tests).
+- `roster.py` — **pure**, stdlib-only known-participant roster (name/role/aliases, `*`=self, closed-set); builds the summary-prompt ground-truth block. Named files `roster.<name>.txt`. Imported by `summarize.py`/`label.py` + tests.
+- `speaker_guess.py` — **pure**, stdlib-only: LLM speaker-name guess prompt + tolerant JSON parse + segment-level speaker merge/name-apply. Imported by `label.py` + tests.
 - `diarize.py` — pyannote.audio **4.x**, `speaker-diarization-community-1`.
 - `merge_tracks.py` — interleave voice(You)/system(Remote) transcription JSON → `_speakers_labeled.json`; `--system-diarization` splits `Remote N`.
 - `merge_diarization.py` — merge single-track diarization + transcription by timestamp.
-- `label.py` / `apply_labels.py` — interactive speaker labeling → final `.txt`.
+- `label.py` / `apply_labels.py` — interactive speaker labeling → final `.txt`. `label.py` is roster-aware: pre-fills an LLM name guess per speaker (best-effort Ollama; graceful fallback), accept/correct/`merge <id|name>`/drop, `--auto-guess`/`--no-guess`.
 - `meeting_ui.py` — **pure** helpers for the guided flow (`configured_targets`, `parse_yes_no`, metadata title, `detect_language`). The interactive loop itself is bash `meeting_ui()` in `shepitnote`.
 
 **Publishing** (`hooks/`, invoked as `POST_SUMMARY_HOOK` with `$1 = <base>_summary.md`)
@@ -41,7 +43,7 @@ user still sees progress. Nothing else talks to the network or the mic — the w
 
 **Config / templates / tests / docs**
 - `.shepitnoterc.example` — annotated template documenting **every** option; **this is the config reference**. Copy → `.shepitnoterc` (git-ignored, sourced at startup).
-- `glossary*.txt.example` — glossary templates. `tests/` — unittest. `docs/` — topic guides (see bottom).
+- `glossary*.txt.example` — glossary templates. `roster.txt.example` — participant-roster template (copy → `roster.txt`, git-ignored). `tests/` — unittest. `docs/` — topic guides (see bottom).
 
 ## Pipeline & per-meeting file layout
 
@@ -77,7 +79,7 @@ function parses its own flags in a local `case` loop.
 
 ## Tests
 
-`venv/bin/python -m unittest discover -s tests` (unittest, **no pytest in venv**; 281 tests).
+`venv/bin/python -m unittest discover -s tests` (unittest, **no pytest in venv**; 320 tests).
 Tests import modules directly (`sys.path` → repo root) and cover **pure logic only** — no mic,
 Ollama, or network. `shepitnote` runs `main` only when executed, not sourced, so bash helpers
 are unit-testable too. Add tests for new pure logic; keep side-effecting code thin.
