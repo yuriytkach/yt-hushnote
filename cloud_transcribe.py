@@ -79,6 +79,33 @@ def _prepare_upload(audio_file):
     return audio_file, False
 
 
+def _filter_hallucination_loops(segments, min_repeat=3):
+    """Drop runs of `min_repeat`+ consecutive segments with identical text.
+
+    faster-whisper's local path (transcribe.py) sets condition_on_previous_text
+    =False specifically to stop Whisper from looping the same boilerplate
+    phrase over near-silent audio; Groq's OpenAI-compatible API exposes no such
+    knob, so a quiet track can come back as the same short phrase repeated once
+    per ~30s chunk for the whole file (e.g. a YouTube-outro hallucination like
+    "thanks for watching!"). That exact-repeat-per-chunk shape is not something
+    real speech produces, so treat it as the hallucination signature and drop
+    the whole run rather than trust any segment in it.
+    """
+    if not segments:
+        return segments
+    filtered = []
+    i, n = 0, len(segments)
+    while i < n:
+        key = segments[i]["text"].strip().lower()
+        j = i + 1
+        while j < n and segments[j]["text"].strip().lower() == key:
+            j += 1
+        if not key or (j - i) < min_repeat:
+            filtered.extend(segments[i:j])
+        i = j
+    return filtered
+
+
 def _map_response(payload, fallback_language=None):
     """Map an OpenAI-compatible transcription JSON payload to our result dict.
 
@@ -96,10 +123,19 @@ def _map_response(payload, fallback_language=None):
             "text": (seg.get("text") or "").strip(),
         })
 
+    original_count = len(segments)
+    segments = _filter_hallucination_loops(segments)
+    if len(segments) != original_count:
+        print(
+            f"Dropped {original_count - len(segments)} segment(s) that looked like a "
+            "Whisper hallucination loop (repeated boilerplate text on near-silent audio).",
+            file=sys.stderr,
+        )
+
     text = (payload.get("text") or "").strip()
     if not segments and text:
         segments = [{"start": 0.0, "end": 0.0, "text": text}]
-    if not text and segments:
+    if (not text and segments) or original_count != len(segments):
         text = " ".join(s["text"] for s in segments).strip()
 
     language = payload.get("language") or fallback_language or ""

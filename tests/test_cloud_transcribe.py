@@ -75,6 +75,33 @@ class TestMapResponse(unittest.TestCase):
         result = cloud_transcribe._map_response({"text": "x"})
         self.assertEqual(set(result.keys()), {"language", "segments", "text"})
 
+    def test_hallucination_loop_is_dropped(self):
+        """A repeated boilerplate phrase across many segments (Groq has no
+        condition_on_previous_text guard) is filtered out as a hallucination."""
+        payload = {
+            "text": "real words. Дякую за перегляд! Дякую за перегляд! Дякую за перегляд! Дякую за перегляд!",
+            "segments": [
+                {"start": 0.0, "end": 5.0, "text": "real words."},
+                {"start": 5.0, "end": 35.0, "text": "Дякую за перегляд!"},
+                {"start": 35.0, "end": 65.0, "text": "Дякую за перегляд!"},
+                {"start": 65.0, "end": 95.0, "text": "Дякую за перегляд!"},
+                {"start": 95.0, "end": 125.0, "text": "Дякую за перегляд!"},
+            ],
+        }
+        result = cloud_transcribe._map_response(payload)
+        self.assertEqual(len(result["segments"]), 1)
+        self.assertEqual(result["segments"][0]["text"], "real words.")
+        self.assertEqual(result["text"], "real words.")
+
+    def test_short_repeat_is_kept(self):
+        """Fewer than 3 consecutive identical segments is plausible real speech."""
+        payload = {"segments": [
+            {"start": 0.0, "end": 1.0, "text": "так"},
+            {"start": 1.0, "end": 2.0, "text": "так"},
+        ]}
+        result = cloud_transcribe._map_response(payload)
+        self.assertEqual(len(result["segments"]), 2)
+
 
 class TestPrepareUpload(unittest.TestCase):
     def test_no_ffmpeg_returns_original(self):
